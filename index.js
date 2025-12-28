@@ -82,26 +82,22 @@ async function startBot() {
       m.message.extendedTextMessage?.text ||
       "";
 
-    /* ===== HELP COMMAND (ADDED) ===== */
+    /* ===== HELP COMMAND ===== */
     if (text === ".help") {
       return sock.sendMessage(from, {
         text:
-`🤖 *Titan Bot – Commands*
-
-*Spam Messages*
-• .setspam  → Messages set karo
-• .start    → Spam start
-• .stop     → Spam stop
-
-*Group Name Changer*
-• .setgc    → GC names set karo
-• .gcstart  → GC name change start
-• .gcstop   → GC name change stop
-
-*Info*
-• .help     → Commands list
-
-👑 Owner-only bot`
+          "🤖 *Titan Bot – Commands*\n\n" +
+          "*Spam Messages*\n" +
+          "• .setspam  → Messages set karo\n" +
+          "• .start    → Spam start\n" +
+          "• .stop     → Spam stop\n\n" +
+          "*Group Name Changer*\n" +
+          "• .setgc    → GC names set karo\n" +
+          "• .gcstart  → GC name change start\n" +
+          "• .gcstop   → GC name change stop\n\n" +
+          "*Info*\n" +
+          "• .help     → Commands list\n\n" +
+          "👑 Owner-only bot"
       });
     }
 
