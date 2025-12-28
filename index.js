@@ -1,196 +1,114 @@
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
-  delay,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  delay
 } from "@whiskeysockets/baileys";
 import P from "pino";
-import readline from "readline"; // kept (not used)
 
-// ===== EDIT THIS ONLY =====
-const PHONE_NUMBER = "9779700249860"; // apna number, no +
+// ===== CHANGE THIS =====
+const PHONE_NUMBER = "9779700249860"; // apna number (no +)
 
-// ===== SETTINGS =====
-const MSG_DELAY = 400;
-const GC_DELAY = 5000;
+// ===== LIMITS =====
+const MAX_MESSAGES = 10;   // hard cap
+const SEND_DELAY = 1200;   // ms (safe)
 
-// ===== STATES =====
+// ===== STATE =====
 let OWNER_JID = null;
-let collectingSpam = false;
-let collectingGC = false;
-let spamRunning = false;
-let gcRunning = false;
-
-let spamMessages = [];
-let gcNames = [];
-
-// readline kept to respect "remove mat karo"
-readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+let collecting = false;
+let messages = [];
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("session");
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
-    logger: P({ level: "silent" }),
     auth: state,
     version,
-    browser: ["TitanBot", "Chrome", "1.0"]
+    logger: P({ level: "silent" }),
+    browser: ["SafeBot", "Chrome", "1.0"]
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ===== PAIR CODE LOGIN =====
+  // Pair code login
   if (!state.creds.registered) {
-    if (!PHONE_NUMBER || PHONE_NUMBER.includes("X")) {
-      console.log("❌ PHONE_NUMBER set nahi hai");
-      return;
-    }
     const code = await sock.requestPairingCode(PHONE_NUMBER);
     console.log("🔑 PAIR CODE:", code);
   }
 
-  sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
-
-    if (connection === "open") {
-      console.log("✅ Bot Connected");
-    }
-
-    if (connection === "close") {
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
-      if (shouldReconnect) startBot();
-    }
+  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+    if (connection === "open") console.log("✅ Connected");
+    if (
+      connection === "close" &&
+      lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+    ) startBot();
   });
 
-  sock.ev.on("messages.upsert", async ({ messages }) => {
-    const m = messages[0];
-    if (!m || !m.message || m.key.fromMe) return;
+  sock.ev.on("messages.upsert", async ({ messages: ms }) => {
+    const m = ms[0];
+    if (!m?.message || m.key.fromMe) return;
 
     const from = m.key.remoteJid;
     const sender = m.key.participant || from;
-
-    // ===== OWNER AUTO SET =====
-    if (!OWNER_JID) {
-      OWNER_JID = sender;
-      await sock.sendMessage(from, { text: "👑 You are OWNER now" });
-    }
-
-    if (sender !== OWNER_JID) return;
-
     const text =
       m.message.conversation ||
       m.message.extendedTextMessage?.text ||
       "";
 
-    // ===== HELP =====
+    // Auto owner set
+    if (!OWNER_JID) {
+      OWNER_JID = sender;
+      await sock.sendMessage(from, { text: "👑 Owner set" });
+    }
+    if (sender !== OWNER_JID) return;
+
     if (text === ".help") {
-      await sock.sendMessage(from, {
+      return sock.sendMessage(from, {
         text:
-          "🤖 *Titan Bot – Commands*\n\n" +
-          "*Spam*\n" +
-          ".setspam → messages set\n" +
-          ".start → spam start\n" +
-          ".stop → spam stop\n\n" +
-          "*GC Name Changer*\n" +
-          ".setgc → names set\n" +
-          ".gcstart → start\n" +
-          ".gcstop → stop\n\n" +
-          "👑 Owner only"
+          "📢 *Limited Broadcast Bot*\n\n" +
+          ".setmsg → messages add (max 10)\n" +
+          ".send   → send once\n" +
+          ".help   → menu\n\n" +
+          "⚠️ One-pass only (no loops)"
       });
-      return;
     }
 
-    // ===== SET SPAM =====
-    if (text === ".setspam") {
-      collectingSpam = true;
-      spamMessages = [];
-      await sock.sendMessage(from, {
-        text: "✍️ Messages bhejo, .done likho jab khatam"
+    if (text === ".setmsg") {
+      collecting = true;
+      messages = [];
+      return sock.sendMessage(from, {
+        text: `✍️ Messages bhejo (max ${MAX_MESSAGES}).\n.done likho jab khatam`
       });
-      return;
     }
 
-    if (collectingSpam && text !== ".done") {
-      spamMessages.push(text);
-      return;
-    }
-
-    if (collectingSpam && text === ".done") {
-      collectingSpam = false;
-      await sock.sendMessage(from, {
-        text: `✅ ${spamMessages.length} messages saved`
-      });
-      return;
-    }
-
-    // ===== START SPAM =====
-    if (text === ".start") {
-      if (!spamMessages.length || spamRunning) return;
-      spamRunning = true;
-
-      while (spamRunning) {
-        for (const msg of spamMessages) {
-          if (!spamRunning) break;
-          await sock.sendMessage(from, { text: msg });
-          await delay(MSG_DELAY);
-        }
+    if (collecting && text !== ".done") {
+      if (messages.length >= MAX_MESSAGES) {
+        return sock.sendMessage(from, {
+          text: `❌ Limit reached (${MAX_MESSAGES})`
+        });
       }
+      messages.push(text);
       return;
     }
 
-    if (text === ".stop") {
-      spamRunning = false;
-      return;
-    }
-
-    // ===== SET GC =====
-    if (text === ".setgc") {
-      collectingGC = true;
-      gcNames = [];
-      await sock.sendMessage(from, {
-        text: "✍️ GC names bhejo, .done likho"
+    if (collecting && text === ".done") {
+      collecting = false;
+      return sock.sendMessage(from, {
+        text: `✅ Saved ${messages.length} messages`
       });
-      return;
     }
 
-    if (collectingGC && text !== ".done") {
-      gcNames.push(text);
-      return;
-    }
-
-    if (collectingGC && text === ".done") {
-      collectingGC = false;
-      return;
-    }
-
-    // ===== START GC NAME CHANGER =====
-    if (text === ".gcstart") {
-      if (!from.endsWith("@g.us") || !gcNames.length || gcRunning) return;
-      gcRunning = true;
-
-      let i = 0;
-      while (gcRunning) {
-        try {
-          await sock.groupUpdateSubject(
-            from,
-            gcNames[i % gcNames.length]
-          );
-        } catch {}
-        i++;
-        await delay(GC_DELAY);
+    if (text === ".send") {
+      if (!messages.length) {
+        return sock.sendMessage(from, { text: "❌ No messages set" });
       }
-      return;
-    }
-
-    if (text === ".gcstop") {
-      gcRunning = false;
-      return;
+      await sock.sendMessage(from, { text: "▶️ Sending..." });
+      for (const msg of messages) {
+        await sock.sendMessage(from, { text: msg });
+        await delay(SEND_DELAY);
+      }
+      await sock.sendMessage(from, { text: "✅ Done (one pass)" });
     }
   });
 }
