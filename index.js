@@ -5,16 +5,16 @@ import makeWASocket, {
   fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import P from "pino";
-import readline from "readline"; // kept, NOT removed
+import readline from "readline"; // kept (not used)
 
-// ====== CHANGE ONLY THIS ======
-const PHONE_NUMBER = "9779700249860"; // ← apna number yahan dalo (no +)
+// ===== EDIT THIS ONLY =====
+const PHONE_NUMBER = "9779700249860"; // apna number, no +
 
-// ====== SETTINGS ======
+// ===== SETTINGS =====
 const MSG_DELAY = 400;
-const GC_DELAY  = 5000;
+const GC_DELAY = 5000;
 
-// ====== STATES ======
+// ===== STATES =====
 let OWNER_JID = null;
 let collectingSpam = false;
 let collectingGC = false;
@@ -24,8 +24,8 @@ let gcRunning = false;
 let spamMessages = [];
 let gcNames = [];
 
-// readline interface kept but NOT used (Railway-safe)
-const rl = readline.createInterface({
+// readline kept to respect "remove mat karo"
+readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
@@ -43,7 +43,7 @@ async function startBot() {
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ===== PAIR CODE LOGIN (NO ENV, NO READLINE) =====
+  // ===== PAIR CODE LOGIN =====
   if (!state.creds.registered) {
     if (!PHONE_NUMBER || PHONE_NUMBER.includes("X")) {
       console.log("❌ PHONE_NUMBER set nahi hai");
@@ -53,10 +53,13 @@ async function startBot() {
     console.log("🔑 PAIR CODE:", code);
   }
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+  sock.ev.on("connection.update", (update) => {
+    const { connection, lastDisconnect } = update;
+
     if (connection === "open") {
       console.log("✅ Bot Connected");
     }
+
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !==
@@ -67,12 +70,12 @@ async function startBot() {
 
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const m = messages[0];
-    if (!m.message || m.key.fromMe) return;
+    if (!m || !m.message || m.key.fromMe) return;
 
     const from = m.key.remoteJid;
     const sender = m.key.participant || from;
 
-    // ===== AUTO OWNER =====
+    // ===== OWNER AUTO SET =====
     if (!OWNER_JID) {
       OWNER_JID = sender;
       await sock.sendMessage(from, { text: "👑 You are OWNER now" });
@@ -87,7 +90,7 @@ async function startBot() {
 
     // ===== HELP =====
     if (text === ".help") {
-      return sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text:
           "🤖 *Titan Bot – Commands*\n\n" +
           "*Spam*\n" +
@@ -100,15 +103,17 @@ async function startBot() {
           ".gcstop → stop\n\n" +
           "👑 Owner only"
       });
+      return;
     }
 
-    // ===== SPAM SET =====
+    // ===== SET SPAM =====
     if (text === ".setspam") {
       collectingSpam = true;
       spamMessages = [];
-      return sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text: "✍️ Messages bhejo, .done likho jab khatam"
       });
+      return;
     }
 
     if (collectingSpam && text !== ".done") {
@@ -118,17 +123,17 @@ async function startBot() {
 
     if (collectingSpam && text === ".done") {
       collectingSpam = false;
-      return sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text: `✅ ${spamMessages.length} messages saved`
       });
+      return;
     }
 
-    // ===== SPAM START / STOP =====
+    // ===== START SPAM =====
     if (text === ".start") {
-      if (!spamMessages.length) return;
-      if (spamRunning) return;
-
+      if (!spamMessages.length || spamRunning) return;
       spamRunning = true;
+
       while (spamRunning) {
         for (const msg of spamMessages) {
           if (!spamRunning) break;
@@ -136,6 +141,7 @@ async function startBot() {
           await delay(MSG_DELAY);
         }
       }
+      return;
     }
 
     if (text === ".stop") {
@@ -143,13 +149,14 @@ async function startBot() {
       return;
     }
 
-    // ===== GC SET =====
+    // ===== SET GC =====
     if (text === ".setgc") {
       collectingGC = true;
       gcNames = [];
-      return sock.sendMessage(from, {
+      await sock.sendMessage(from, {
         text: "✍️ GC names bhejo, .done likho"
       });
+      return;
     }
 
     if (collectingGC && text !== ".done") {
@@ -162,21 +169,23 @@ async function startBot() {
       return;
     }
 
-    // ===== GC START / STOP =====
+    // ===== START GC NAME CHANGER =====
     if (text === ".gcstart") {
-      if (!from.endsWith("@g.us")) return;
-      if (!gcNames.length) return;
-      if (gcRunning) return;
-
+      if (!from.endsWith("@g.us") || !gcNames.length || gcRunning) return;
       gcRunning = true;
+
       let i = 0;
       while (gcRunning) {
         try {
-          await sock.groupUpdateSubject(from, gcNames[i % gcNames.length]);
+          await sock.groupUpdateSubject(
+            from,
+            gcNames[i % gcNames.length]
+          );
         } catch {}
         i++;
         await delay(GC_DELAY);
       }
+      return;
     }
 
     if (text === ".gcstop") {
